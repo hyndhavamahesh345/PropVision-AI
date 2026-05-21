@@ -1,0 +1,72 @@
+========================================
+MANUAL COMMANDS TO PUSH TO GITHUB
+========================================
+
+The automated push is failing due to network timeouts with the large repository.
+Here are the commands for you to run manually:
+
+OPTION 1: Try with increased buffer (Run these one by one)
+----------------------------------------------------------
+cd c:\Users\nirjo\OneDrive\Desktop\Anti
+git config http.postBuffer 1048576000
+git config http.timeout 3600
+git config core.compression 0
+git push -f origin main
+
+OPTION 2: Push using SSH instead of HTTPS
+----------------------------------------------------------
+cd c:\Users\nirjo\OneDrive\Desktop\Anti
+git remote set-url origin git@github.com:hyndhavamahesh345/InventoryAI.git
+git push -f origin main
+
+OPTION 3: Use GitHub Desktop (Easiest)
+----------------------------------------------------------
+1. Download GitHub Desktop: https://desktop.github.com/
+2. Open GitHub Desktop
+3. File > Add Local Repository
+4. Select: c:\Users\nirjo\OneDrive\Desktop\Anti
+5. Click "Publish repository" or "Push origin"
+
+OPTION 4: Upload via GitHub Web Interface
+----------------------------------------------------------
+1. Go to: https://github.com/hyndhavamahesh345/InventoryAI
+2. Click "Add file" > "Upload files"
+3. Drag and drop all folders EXCEPT:
+   - backend/yolo11x.pt
+   - backend/temp_uploads/
+   - node_modules/
+   - .next/
+   - __pycache__/
+4. Commit changes
+
+OPTION 5: Try different network
+----------------------------------------------------------
+- Use mobile hotspot instead of WiFi
+- Try from a different location
+- Use VPN
+
+CURRENT STATUS:
+----------------------------------------------------------
+✅ README.md created (professional documentation)
+✅ LICENSE file added (MIT License)
+✅ SETUP.md created (setup instructions)
+✅ .gitignore updated (excludes large files)
+✅ .env.example files created
+✅ All code is committed locally
+❌ Push to GitHub failing due to network timeout
+
+WHAT'S READY:
+----------------------------------------------------------
+- Complete Next.js 16 frontend with upload/record features
+- FastAPI backend with AI pipeline
+- Docker compose for PostgreSQL and Redis
+- Professional README with badges and documentation
+- Setup guide with model download instructions
+- MIT License
+- Proper .gitignore excluding large files
+
+RECOMMENDED: Use GitHub Desktop (Option 3)
+It handles large repositories better than command line.
+
+After successful push, verify at:
+https://github.com/hyndhavamahesh345/InventoryAI
