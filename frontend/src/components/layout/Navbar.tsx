@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { UserButton, useUser } from '@clerk/nextjs';
 import {
   Building2,
   Bell,
@@ -11,11 +12,7 @@ import {
   BarChart3,
   Home,
   FileText,
-  ChevronDown,
   Zap,
-  User,
-  LogOut,
-  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -28,9 +25,9 @@ const navLinks = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const { user } = useUser();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notifCount] = useState(3);
 
   useEffect(() => {
@@ -113,49 +110,18 @@ export function Navbar() {
                 New Inspection
               </Link>
 
-              {/* User Avatar Dropdown */}
-              <div className="relative">
-                <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white/5 transition-all duration-200"
-                >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white text-sm font-bold">
-                    U
-                  </div>
-                  <ChevronDown
-                    className={cn(
-                      'w-4 h-4 text-gray-400 transition-transform hidden sm:block',
-                      userMenuOpen && 'rotate-180'
-                    )}
-                  />
-                </button>
-
-                {userMenuOpen && (
-                  <div className="absolute right-0 top-12 w-48 glass-dark rounded-xl p-1 border border-white/10 shadow-2xl z-50 animate-scale-in">
-                    <div className="px-3 py-2 border-b border-white/10 mb-1">
-                      <p className="text-sm font-medium text-white">User</p>
-                      <p className="text-xs text-gray-400">user@propinspect.ai</p>
-                    </div>
-                    {[
-                      { icon: User, label: 'Profile' },
-                      { icon: Settings, label: 'Settings' },
-                    ].map(({ icon: Icon, label }) => (
-                      <button
-                        key={label}
-                        className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-all"
-                      >
-                        <Icon className="w-4 h-4" />
-                        {label}
-                      </button>
-                    ))}
-                    <div className="border-t border-white/10 mt-1 pt-1">
-                      <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-all">
-                        <LogOut className="w-4 h-4" />
-                        Sign Out
-                      </button>
-                    </div>
-                  </div>
-                )}
+              {/* User Button from Clerk */}
+              <div className="flex items-center">
+                <UserButton 
+                  appearance={{
+                    elements: {
+                      avatarBox: "w-8 h-8",
+                      userButtonPopoverCard: "bg-gray-900 border border-white/10",
+                      userButtonPopoverActionButton: "hover:bg-white/5",
+                    },
+                  }}
+                  afterSignOutUrl="/sign-in"
+                />
               </div>
 
               {/* Mobile Hamburger */}
@@ -209,13 +175,6 @@ export function Navbar() {
         )}
       </nav>
 
-      {/* Backdrop for user menu */}
-      {userMenuOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setUserMenuOpen(false)}
-        />
-      )}
     </>
   );
 }
