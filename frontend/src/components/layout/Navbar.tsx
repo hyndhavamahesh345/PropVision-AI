@@ -120,7 +120,6 @@ export function Navbar() {
                       userButtonPopoverActionButton: "hover:bg-white/5",
                     },
                   }}
-                  afterSignOutUrl="/sign-in"
                 />
               </div>
 
