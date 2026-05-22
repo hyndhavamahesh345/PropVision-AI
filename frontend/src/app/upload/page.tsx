@@ -1,385 +1,360 @@
 'use client';
-import { useState } from 'react';
-import Link from 'next/link';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  CheckCircle2,
-  Circle,
-  Building2,
+  Upload,
   Video,
+  X,
+  AlertCircle,
+  CheckCircle2,
+  FileVideo,
   Loader2,
-  ChevronLeft,
-  Plus,
-  Home,
-  MapPin,
-  Tag,
+  Camera,
+  StopCircle,
+  Boxes,
+  Circle
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { UploadZone } from '@/components/upload/UploadZone';
-import { Navbar } from '@/components/layout/Navbar';
 import { cn } from '@/lib/utils';
 
-const PROPERTY_TYPES = [
-  'Apartment', 'House', 'Villa', 'Studio', 'Penthouse', 'Townhouse', 'Office', 'Commercial',
-];
+// --- Configuration ---
+const MAX_SIZE_MB = 500;
+const ACCEPTED_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo'];
+const ACCEPTED_EXT = '.mp4, .mov, .webm, .avi';
 
-const MOCK_PROPERTIES = [
-  { id: 'p1', name: 'Sunset Villa', address: '42 Horizon Blvd, Miami', property_type: 'Villa' },
-  { id: 'p2', name: 'Metro Apartment', address: '8 Central Ave, New York', property_type: 'Apartment' },
-  { id: 'p3', name: 'Harbor View Condo', address: '17 Port Road, San Francisco', property_type: 'Penthouse' },
-];
+type UploadState = 'idle' | 'ready' | 'uploading' | 'success' | 'error';
+type InputMode = 'upload' | 'record';
 
-type Step = 1 | 2 | 3;
+interface FileInfo {
+  file: File;
+  name: string;
+  sizeMB: number;
+}
 
-const STEPS = [
-  { id: 1, label: 'Select Property', icon: Building2, description: 'Choose or create a property' },
-  { id: 2, label: 'Upload / Record Video', icon: Video, description: 'Upload or record inspection footage' },
-  { id: 3, label: 'Processing', icon: Loader2, description: 'AI inspection in progress' },
-];
-
-export default function UploadPage() {
+export default function SimpleUploadPage() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>(1);
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [newProp, setNewProp] = useState({ name: '', address: '', property_type: 'Apartment' });
-  const [jobId, setJobId] = useState<string | null>(null);
+  
+  // States
+  const [inputMode, setInputMode] = useState<InputMode>('upload');
+  const [state, setState] = useState<UploadState>('idle');
+  const [dragOver, setDragOver] = useState(false);
+  const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Camera States
+  const [isRecording, setIsRecording] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
-  const handlePropertySelect = (id: string) => {
-    setSelectedPropertyId(id);
-    setShowCreate(false);
+  // Cleanup camera stream
+  useEffect(() => {
+    return () => {
+      if (stream) stream.getTracks().forEach((track) => track.stop());
+    };
+  }, [stream]);
+
+  const validateFile = (file: File): string | null => {
+    if (!ACCEPTED_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov|webm|avi)$/i)) {
+      return `Invalid file type. Accepted: ${ACCEPTED_EXT}`;
+    }
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > MAX_SIZE_MB) {
+      return `File too large. Maximum size: ${MAX_SIZE_MB}MB`;
+    }
+    return null;
   };
 
-  const handleCreateProperty = async (e: React.FormEvent) => {
+  const handleFile = useCallback((file: File) => {
+    const validationError = validateFile(file);
+    if (validationError) {
+      setError(validationError);
+      setState('error');
+      return;
+    }
+    setError(null);
+    setFileInfo({ file, name: file.name, sizeMB: file.size / (1024 * 1024) });
+    setState('ready');
+  }, []);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    if (!newProp.name || !newProp.address) return;
-    setCreating(true);
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const onDragLeave = () => setDragOver(false);
+
+  const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  // Recording Logic
+  const startCamera = async () => {
     try {
-      const created = await api.createProperty(newProp) as { id: string };
-      setSelectedPropertyId(created.id);
-      setShowCreate(false);
-    } catch {
-      // Fallback: use mock id
-      setSelectedPropertyId('new-' + Date.now());
-      setShowCreate(false);
-    } finally {
-      setCreating(false);
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+    } catch (err) {
+      setError('Camera access denied or unavailable.');
     }
   };
 
-  const handleUploadComplete = (videoId: string, uploadedJobId: string) => {
-    setJobId(uploadedJobId);
-    setStep(3);
-    setTimeout(() => {
-      router.push(`/inspections/${uploadedJobId}`);
-    }, 2500);
+  const startRecording = () => {
+    if (!stream) return;
+    try {
+      chunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const mimeType = recorder.mimeType || 'video/webm';
+        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const file = new File([blob], `recorded_walkthrough_${Date.now()}.${ext}`, { type: mimeType });
+        handleFile(file);
+        stream.getTracks().forEach(track => track.stop());
+        setStream(null);
+        setIsRecording(false);
+      };
+
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+    } catch (err) {
+      setError('Recording failed. Your browser might not support video recording.');
+      setIsRecording(false);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const startUpload = async () => {
+    if (!fileInfo) return;
+    setState('uploading');
+    setProgress(0);
+    setError(null);
+
+    try {
+      // Mock property ID since user just wants upload
+      const propertyId = "prop_123"; 
+      const result = await api.uploadVideo(propertyId, fileInfo.file, (p) => setProgress(p));
+      
+      setState('success');
+      setProgress(100);
+      
+      // Redirect after success
+      setTimeout(() => {
+        router.push(`/inspections/${result.job_id || 'test'}`);
+      }, 1500);
+    } catch (err) {
+      setState('error');
+      setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
+    }
+  };
+
+  const reset = () => {
+    setState('idle');
+    setFileInfo(null);
+    setProgress(0);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
-    <div className="min-h-screen gradient-bg-dark">
-      <Navbar />
-
-      <main className="pt-20 pb-12 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-8 animate-fade-in">
-          <Link href="/" className="flex items-center gap-1.5 hover:text-gray-300 transition-colors">
-            <Home className="w-3.5 h-3.5" />
-            Dashboard
-          </Link>
-          <span>/</span>
-          <span className="text-gray-300">New Inspection</span>
+    <div className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-xl">
+        
+        {/* Header */}
+        <div className="text-center mb-10">
+          <div className="w-16 h-16 mx-auto bg-indigo-500/20 text-indigo-400 rounded-2xl flex items-center justify-center mb-4 border border-indigo-500/30">
+            <Boxes className="w-8 h-8" />
+          </div>
+          <h1 className="text-3xl font-bold text-white mb-2 tracking-tight" style={{ fontFamily: "var(--font-outfit)" }}>
+            Property Inventory AI
+          </h1>
+          <p className="text-gray-400">Upload or record a walkthrough video to generate an inventory.</p>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-8">
-          {/* Step Indicator Sidebar */}
-          <div className="lg:w-72 flex-shrink-0">
-            <div className="glass rounded-2xl p-6 border border-white/8 space-y-2 sticky top-24">
-              <div className="mb-6">
-                <h1 className="font-heading font-bold text-xl text-white">New Inspection</h1>
-                <p className="text-sm text-gray-400 mt-1">Upload or record a video to start AI inspection</p>
-              </div>
+        {/* Upload/Record Box */}
+        <div className="glass rounded-3xl p-2 sm:p-6 shadow-2xl border border-white/10 relative overflow-hidden">
+          
+          {/* Mode Toggle */}
+          {(state === 'idle' || state === 'error') && (
+            <div className="flex bg-black/40 rounded-xl p-1 mb-6 border border-white/5">
+              <button
+                onClick={() => { setInputMode('upload'); if(stream) stream.getTracks().forEach(t => t.stop()); }}
+                className={cn(
+                  "flex-1 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2",
+                  inputMode === 'upload' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-gray-200"
+                )}
+              >
+                <Upload className="w-4 h-4" /> Upload Video
+              </button>
+              <button
+                onClick={() => { setInputMode('record'); startCamera(); }}
+                className={cn(
+                  "flex-1 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2",
+                  inputMode === 'record' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-gray-200"
+                )}
+              >
+                <Camera className="w-4 h-4" /> Record Video
+              </button>
+            </div>
+          )}
 
-              {STEPS.map((s, i) => {
-                const isActive = step === s.id;
-                const isCompleted = step > s.id;
-                const isPending = step < s.id;
-                const Icon = s.icon;
-
-                return (
-                  <div
-                    key={s.id}
-                    className={cn(
-                      'flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all duration-200',
-                      isActive && 'bg-indigo-500/10 border border-indigo-500/20',
-                      isCompleted && 'opacity-70',
-                      isPending && 'opacity-40'
-                    )}
-                  >
-                    {/* Step circle */}
-                    <div
-                      className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border text-sm font-bold',
-                        isCompleted
-                          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                          : isActive
-                          ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-400'
-                          : 'bg-white/5 border-white/10 text-gray-600'
-                      )}
-                    >
-                      {isCompleted ? (
-                        <CheckCircle2 className="w-4 h-4" />
-                      ) : isActive && s.id === 3 ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        s.id
-                      )}
-                    </div>
-
-                    <div>
-                      <p
-                        className={cn(
-                          'text-sm font-semibold',
-                          isActive ? 'text-indigo-200' : isCompleted ? 'text-emerald-300' : 'text-gray-500'
-                        )}
-                      >
-                        {s.label}
-                      </p>
-                      <p className="text-xs text-gray-500">{s.description}</p>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Connection line decoration */}
-              <div className="mt-6 pt-4 border-t border-white/8">
-                <p className="text-xs text-gray-600 text-center">
-                  Average processing time: <span className="text-gray-400">4–8 minutes</span>
+          {/* UPLOAD MODE */}
+          {(state === 'idle' || state === 'error') && inputMode === 'upload' && (
+            <div
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                'relative flex flex-col items-center justify-center gap-4 py-16 px-6 rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-300 group',
+                dragOver ? 'border-indigo-400 bg-indigo-500/10' : 'border-white/15 bg-white/5 hover:border-indigo-400/50 hover:bg-white/10',
+                state === 'error' && 'border-red-500/40 bg-red-500/5'
+              )}
+            >
+              <FileVideo className={cn("w-12 h-12 transition-all", dragOver ? 'text-indigo-400 scale-110' : 'text-gray-500 group-hover:text-indigo-400')} />
+              <div className="text-center">
+                <p className="text-lg font-semibold text-gray-200 mb-1">
+                  {dragOver ? 'Drop video here' : 'Drag & drop a video'}
                 </p>
+                <p className="text-sm text-gray-400">or click to browse</p>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Main Content */}
-          <div className="flex-1 min-w-0">
-            {/* Step 1: Property Selection */}
-            {step === 1 && (
-              <div className="space-y-5 animate-slide-up">
-                <div className="glass rounded-2xl p-6 border border-white/8">
-                  <h2 className="font-heading font-semibold text-white text-xl mb-1">
-                    Select Property
-                  </h2>
-                  <p className="text-sm text-gray-400 mb-6">
-                    Choose which property this inspection is for
-                  </p>
-
-                  {/* Property list */}
-                  <div className="space-y-3 mb-5">
-                    {MOCK_PROPERTIES.map((prop) => (
-                      <button
-                        key={prop.id}
-                        onClick={() => handlePropertySelect(prop.id)}
-                        className={cn(
-                          'w-full flex items-start gap-4 p-4 rounded-xl border transition-all duration-200 text-left',
-                          selectedPropertyId === prop.id
-                            ? 'border-indigo-500/50 bg-indigo-500/8 glow-indigo'
-                            : 'border-white/8 hover:border-white/15 hover:bg-white/3'
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
-                            selectedPropertyId === prop.id
-                              ? 'bg-indigo-500/20 border border-indigo-500/40'
-                              : 'bg-white/5 border border-white/10'
-                          )}
-                        >
-                          <Building2
-                            className={cn(
-                              'w-5 h-5',
-                              selectedPropertyId === prop.id ? 'text-indigo-400' : 'text-gray-500'
-                            )}
-                          />
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-white">{prop.name}</p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <MapPin className="w-3 h-3 text-gray-500" />
-                            <p className="text-xs text-gray-400">{prop.address}</p>
-                          </div>
-                          <span className="inline-block mt-1.5 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] text-gray-400">
-                            {prop.property_type}
-                          </span>
-                        </div>
-                        {selectedPropertyId === prop.id && (
-                          <CheckCircle2 className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-1" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Create new property */}
-                  {!showCreate ? (
-                    <button
-                      onClick={() => setShowCreate(true)}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/15 text-sm text-gray-400 hover:text-gray-200 hover:border-white/25 hover:bg-white/3 transition-all"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Create New Property
-                    </button>
-                  ) : (
-                    <form onSubmit={handleCreateProperty} className="glass-dark rounded-xl p-5 border border-white/10 space-y-4 animate-slide-up">
-                      <h3 className="font-semibold text-white text-sm">New Property Details</h3>
-                      <div className="space-y-3">
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-400 flex items-center gap-1.5">
-                            <Building2 className="w-3.5 h-3.5" />
-                            Property Name
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Sunset Villa"
-                            value={newProp.name}
-                            onChange={(e) => setNewProp((p) => ({ ...p, name: e.target.value }))}
-                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 input-focus"
-                            required
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-400 flex items-center gap-1.5">
-                            <MapPin className="w-3.5 h-3.5" />
-                            Address
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 42 Ocean Drive, Miami"
-                            value={newProp.address}
-                            onChange={(e) => setNewProp((p) => ({ ...p, address: e.target.value }))}
-                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 input-focus"
-                            required
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-400 flex items-center gap-1.5">
-                            <Tag className="w-3.5 h-3.5" />
-                            Property Type
-                          </label>
-                          <select
-                            value={newProp.property_type}
-                            onChange={(e) => setNewProp((p) => ({ ...p, property_type: e.target.value }))}
-                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white input-focus"
-                          >
-                            {PROPERTY_TYPES.map((t) => (
-                              <option key={t} value={t} className="bg-[#0f1629]">{t}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setShowCreate(false)}
-                          className="flex-1 px-4 py-2.5 rounded-lg border border-white/10 text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-all"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={creating}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-cyan-500 transition-all"
-                        >
-                          {creating && <Loader2 className="w-4 h-4 animate-spin" />}
-                          Create Property
-                        </button>
-                      </div>
-                    </form>
-                  )}
+          {/* RECORD MODE */}
+          {(state === 'idle' || state === 'error') && inputMode === 'record' && (
+            <div className="rounded-2xl overflow-hidden bg-black relative aspect-video border border-white/10 flex items-center justify-center shadow-inner">
+              {stream ? (
+                <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+              ) : (
+                <Camera className="w-12 h-12 text-gray-700 animate-pulse" />
+              )}
+              
+              {isRecording && (
+                <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-red-500/20 border border-red-500 text-red-400 rounded-full text-xs font-bold animate-pulse backdrop-blur-md">
+                  <div className="w-2 h-2 rounded-full bg-red-500" /> REC
                 </div>
-
-                {/* Continue button */}
-                <button
-                  onClick={() => selectedPropertyId && setStep(2)}
-                  disabled={!selectedPropertyId}
-                  className={cn(
-                    'w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-white transition-all duration-300',
-                    selectedPropertyId
-                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-cyan-500 shadow-lg shadow-indigo-500/25'
-                      : 'bg-white/5 text-gray-600 cursor-not-allowed'
-                  )}
-                >
-                  Continue to Upload
-                  {selectedPropertyId && <CheckCircle2 className="w-4 h-4" />}
-                </button>
-              </div>
-            )}
-
-            {/* Step 2: Upload */}
-            {step === 2 && (
-              <div className="space-y-5 animate-slide-up">
-                <div className="glass rounded-2xl p-6 border border-white/8">
-                  <div className="flex items-center gap-3 mb-2">
-                    <button
-                      onClick={() => setStep(1)}
-                      className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-all"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <h2 className="font-heading font-semibold text-white text-xl">Upload or Record Video</h2>
-                  </div>
-                  <p className="text-sm text-gray-400 mb-6 ml-10">
-                    Upload or record your property walkthrough video for AI inspection
-                  </p>
-                  <UploadZone
-                    propertyId={selectedPropertyId || ''}
-                    onComplete={handleUploadComplete}
-                  />
-                </div>
-
-                <div className="glass-dark rounded-xl p-4 border border-white/8 text-sm text-gray-400 space-y-2">
-                  <p className="font-medium text-gray-300">💡 Tips for best results:</p>
-                  <ul className="space-y-1 text-xs ml-4 list-disc">
-                    <li>Walk slowly through each room, pausing 2–3 seconds on each item</li>
-                    <li>Ensure good lighting — turn on all room lights</li>
-                    <li>Capture all angles of furniture and fixtures</li>
-                    <li>Record at 1080p or higher for best detection accuracy</li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {/* Step 3: Processing */}
-            {step === 3 && (
-              <div className="flex flex-col items-center justify-center py-16 space-y-6 animate-scale-in">
-                <div className="relative">
-                  <div className="w-24 h-24 rounded-full bg-indigo-500/15 border-2 border-indigo-500/30 flex items-center justify-center glow-indigo">
-                    <Loader2 className="w-12 h-12 text-indigo-400 animate-spin" />
-                  </div>
-                  <div className="absolute inset-0 rounded-full border-2 border-indigo-500/20 animate-ping" />
-                </div>
-                <div className="text-center space-y-2">
-                  <h2 className="font-heading font-bold text-2xl text-white">
-                    Upload Successful!
-                  </h2>
-                  <p className="text-gray-400">
-                    AI inspection pipeline is starting...
-                  </p>
-                  <p className="text-sm text-indigo-400 animate-pulse">
-                    Redirecting to live tracking
-                  </p>
-                </div>
-                {jobId && (
-                  <Link
-                    href={`/inspections/${jobId}`}
-                    className="px-6 py-3 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-cyan-500 transition-all"
+              )}
+              
+              <div className="absolute bottom-6 left-0 right-0 flex justify-center">
+                {!isRecording ? (
+                  <button
+                    onClick={startRecording}
+                    disabled={!stream}
+                    className="flex items-center gap-2 px-6 py-3 rounded-full bg-red-500 hover:bg-red-400 text-white font-bold transition-all disabled:opacity-0 shadow-lg shadow-red-500/20"
                   >
-                    Go to Live Tracking
-                  </Link>
+                    <Circle className="w-5 h-5 fill-white" /> Start Recording
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopRecording}
+                    className="flex items-center gap-2 px-6 py-3 rounded-full bg-white/10 border border-white/20 hover:bg-white/20 text-white font-bold backdrop-blur-md transition-all"
+                  >
+                    <StopCircle className="w-5 h-5" /> Stop & Upload
+                  </button>
                 )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES.join(',')} onChange={onInputChange} className="hidden" />
+
+          {/* Errors */}
+          {state === 'error' && error && (
+            <div className="mt-4 flex items-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {/* READY STATE */}
+          {state === 'ready' && fileInfo && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex items-center gap-4 bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
+                <div className="w-12 h-12 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                  <Video className="w-6 h-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{fileInfo.name}</p>
+                  <p className="text-xs text-gray-400">{fileInfo.sizeMB.toFixed(1)} MB</p>
+                </div>
+                <button onClick={reset} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <button
+                onClick={startUpload}
+                className="w-full py-4 rounded-xl font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-cyan-500 transition-all shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 text-lg"
+              >
+                <Upload className="w-5 h-5" /> Start Processing
+              </button>
+            </div>
+          )}
+
+          {/* UPLOADING STATE */}
+          {state === 'uploading' && fileInfo && (
+            <div className="animate-in fade-in zoom-in-95 duration-500 py-8 text-center space-y-6">
+              <Loader2 className="w-12 h-12 text-indigo-400 animate-spin mx-auto" />
+              <div>
+                <p className="text-white font-semibold mb-1">Uploading Video...</p>
+                <p className="text-sm text-gray-400">{fileInfo.name}</p>
+              </div>
+              <div className="w-full max-w-xs mx-auto">
+                <div className="flex justify-between text-sm font-medium mb-2">
+                  <span className="text-indigo-400">{progress}%</span>
+                  <span className="text-gray-500">
+                    {((fileInfo.sizeMB * progress) / 100).toFixed(1)} / {fileInfo.sizeMB.toFixed(1)} MB
+                  </span>
+                </div>
+                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SUCCESS STATE */}
+          {state === 'success' && (
+            <div className="animate-in fade-in zoom-in-95 duration-500 py-10 text-center space-y-4">
+              <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-2xl font-bold text-white">Upload Complete!</h3>
+              <p className="text-gray-400">Processing video through AI models...</p>
+              <div className="pt-4 flex justify-center">
+                <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
+              </div>
+            </div>
+          )}
+
         </div>
-      </main>
+      </div>
     </div>
   );
 }
