@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { UserButton, useUser } from '@clerk/nextjs';
 import {
   Building2,
   Bell,
@@ -25,7 +24,6 @@ const navLinks = [
 
 export function Navbar() {
   const pathname = usePathname();
-  const { user } = useUser();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifCount] = useState(3);
@@ -110,17 +108,11 @@ export function Navbar() {
                 New Inspection
               </Link>
 
-              {/* User Button from Clerk */}
+              {/* Simple User Avatar */}
               <div className="flex items-center">
-                <UserButton 
-                  appearance={{
-                    elements: {
-                      avatarBox: "w-8 h-8",
-                      userButtonPopoverCard: "bg-gray-900 border border-white/10",
-                      userButtonPopoverActionButton: "hover:bg-white/5",
-                    },
-                  }}
-                />
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white text-sm font-bold cursor-pointer hover:opacity-80 transition-opacity">
+                  U
+                </div>
               </div>
 
               {/* Mobile Hamburger */}
