@@ -9,14 +9,24 @@ async function apiRequest<T>(
 ): Promise<T> {
   const token =
     typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  
+  // Add cache-busting headers
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    // Add timestamp to URL to prevent caching
+    'X-Request-ID': `${Date.now()}-${Math.random()}`,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers as Record<string, string> | undefined),
-    },
+    headers,
   });
+  
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || 'API error');
@@ -48,26 +58,43 @@ export const api = {
   getProperty: (id: string) => apiRequest<unknown>(`/properties/${id}`),
 
   // Videos
-  uploadVideo: (
+  uploadVideo: async (
     propertyId: string,
     file: File,
     onProgress?: (p: number) => void
-  ): Promise<{ id: string; job_id: string }> => {
-    return new Promise((resolve) => {
+  ): Promise<{ id: string; job_id: string; message?: string }> => {
+    // Note: Standard fetch doesn't support upload progress. 
+    // We simulate progress for UI purposes, but wait for actual fetch.
+    if (onProgress) {
       let progress = 0;
       const interval = setInterval(() => {
-        progress += 5;
-        if (onProgress) onProgress(progress);
-        if (progress >= 100) {
-          clearInterval(interval);
-          resolve({ id: 'vid-' + Date.now(), job_id: 'job-' + Date.now() });
-        }
-      }, 100);
+        progress += 10;
+        if (progress <= 90) onProgress(progress);
+        else clearInterval(interval);
+      }, 500);
+    }
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/inspections/upload?property_id=${propertyId}`, {
+      method: 'POST',
+      body: formData,
     });
+    
+    if (!res.ok) {
+      throw new Error('Video upload failed');
+    }
+    
+    if (onProgress) onProgress(100);
+    return res.json();
   },
 
   // Inspections
-  getInspection: (jobId: string) => apiRequest<unknown>(`/inspections/${jobId}`),
+  getInspection: (jobId: string) => {
+    // Add timestamp to prevent caching
+    const noCacheUrl = `/inspections/status/${jobId}?t=${Date.now()}`;
+    return apiRequest<unknown>(noCacheUrl);
+  },
   getInspections: (params?: {
     skip?: number;
     limit?: number;

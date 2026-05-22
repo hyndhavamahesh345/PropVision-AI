@@ -1,3 +1,4 @@
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.endpoints import inspection
@@ -18,3 +19,6 @@ app.include_router(inspection.router, prefix="/api/v1/inspections", tags=["inspe
 @app.get("/")
 def read_root():
     return {"message": "Welcome to PropInspect AI Backend API"}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

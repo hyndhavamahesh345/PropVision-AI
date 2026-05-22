@@ -20,8 +20,20 @@ class FlorenceVisionModel:
     def _load_model(self):
         try:
             import torch
-            from transformers import AutoProcessor, AutoModelForCausalLM
+            from transformers import AutoProcessor, AutoModelForCausalLM, PretrainedConfig
+            from transformers.tokenization_utils_base import PreTrainedTokenizerBase
             
+            # Monkey patch to fix Florence-2 bug in transformers >= 4.45.0
+            if not hasattr(PretrainedConfig, "forced_bos_token_id"):
+                PretrainedConfig.forced_bos_token_id = None
+                
+            # Monkey patch to fix RobertaTokenizer/other tokenizers missing additional_special_tokens in newer transformers
+            if not hasattr(PreTrainedTokenizerBase, "additional_special_tokens"):
+                @property
+                def additional_special_tokens_prop(self):
+                    return self.special_tokens_map.get("additional_special_tokens", [])
+                PreTrainedTokenizerBase.additional_special_tokens = additional_special_tokens_prop
+                
             if self.device == 'auto':
                 self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
                 
@@ -86,4 +98,4 @@ class FlorenceVisionModel:
             return self._mock_analysis()
             
     def _mock_analysis(self) -> str:
-        return "This is a modern living room featuring a gray sofa, a flat screen television mounted on a white wall, and a wooden coffee table. The room appears to be well-lit and in good condition."
+        return ""

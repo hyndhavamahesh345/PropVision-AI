@@ -1,6 +1,6 @@
 """
 Local LLM integration via Ollama for NLP summarization.
-Uses open-source models like Llama 3 or Phi-3 running locally.
+Falls back to heuristic-based summaries if Ollama is unavailable.
 """
 import logging
 import json
@@ -9,79 +9,99 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+
 class LocalLLMService:
-    def __init__(self, ollama_url: str = "http://localhost:11434", default_model: str = "llama3"):
+    def __init__(self, ollama_url: str = "http://localhost:11434", default_model: str = "qwen2:1.5b"):
         self.ollama_url = ollama_url
         self.default_model = default_model
+        self._ollama_available = self._check_ollama()
         
+    def _check_ollama(self) -> bool:
+        try:
+            response = requests.get(f"{self.ollama_url}/api/tags", timeout=2)
+            return response.status_code == 200
+        except:
+            logger.warning("Ollama not available. Using fallback heuristic mode.")
+            return False
+            
     def generate_inventory_summary(self, 
                                    tracked_objects_summary: Dict[int, Dict[str, Any]], 
                                    room_descriptions: List[str]) -> Dict[str, Any]:
         """
         Takes raw tracking data and scene descriptions and generates a structured summary.
+        If Ollama is not running, falls back to a smart heuristic parser.
         """
-        # Format the data for the prompt
+        if self._ollama_available:
+            return self._summarize_with_llm(tracked_objects_summary, room_descriptions)
+        else:
+            return self._fallback_summary(tracked_objects_summary, room_descriptions)
+    
+    def _summarize_with_llm(self, tracked_objects_summary: Dict[int, Dict[str, Any]], room_descriptions: List[str]) -> Dict[str, Any]:
+        """Use Ollama LLM to generate summary."""
         objects_list = []
         for obj in tracked_objects_summary.values():
-            objects_list.append(f"- {obj['class_name']} (confidence: {obj['avg_confidence']:.2f})")
-            
-        objects_text = "\n".join(objects_list) if objects_list else "No objects detected."
-        scenes_text = "\n".join([f"- {desc}" for desc in room_descriptions]) if room_descriptions else "No scene descriptions available."
+            objects_list.append(f"- {obj['class_name']} (confidence: {obj.get('avg_confidence', 0):.2f})")
         
-        prompt = f"""
-You are an AI assistant for a Property Inspection Platform. 
-Your task is to generate a clean, professional inventory summary based on the raw AI pipeline data.
+        objects_text = "\n".join(objects_list) if objects_list else "No objects detected."
+        scenes_text = "\n".join([f"- {desc}" for desc in room_descriptions]) if room_descriptions else "No scene descriptions."
+        
+        prompt = f"""You are a property inspection AI. Generate a clean JSON inventory from this data:
 
-Raw Detected Objects:
+Detected Objects:
 {objects_text}
 
-Visual Scene Understanding:
+Scene Understanding:
 {scenes_text}
 
-Please provide a JSON output summarizing the property inventory. 
-Do not include markdown blocks, just the raw JSON. The JSON should have the following structure:
-{{
-  "total_items": <int>,
-  "inventory": [
-    {{"item": "<name>", "quantity": <count>, "condition_notes": "<derived from scene understanding if applicable>"}}
-  ],
-  "overall_scene_description": "<A clean summary of the scenes>"
-}}
-"""
+Return only valid JSON with no markdown: {{"total_items": <int>, "inventory": [{{"item": "<name>", "quantity": <count>, "condition_notes": "<notes>"}}], "overall_scene_description": "<summary>"}}"""
         
         try:
-            # Query Ollama
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
-                json={
-                    "model": self.default_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "format": "json"
-                },
-                timeout=120
+                json={"model": self.default_model, "prompt": prompt, "stream": False},
+                timeout=30
             )
-            response.raise_for_status()
-            data = response.json()
-            
-            # Parse the JSON response
-            result = json.loads(data.get("response", "{}"))
-            return result
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to communicate with local Ollama instance: {e}")
-            return self._mock_summary()
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM JSON response: {e}")
-            return self._mock_summary()
-
-    def _mock_summary(self) -> Dict[str, Any]:
+            if response.status_code == 200:
+                result = response.json().get("response", "")
+                try:
+                    return json.loads(result)
+                except:
+                    logger.error(f"Failed to parse LLM response")
+                    return None
+        except Exception as e:
+            logger.error(f"LLM error: {e}")
+        
+        return None
+    
+    def _fallback_summary(self, tracked_objects_summary: Dict[int, Dict[str, Any]], room_descriptions: List[str]) -> Dict[str, Any]:
+        """Generate summary using heuristic rules when Ollama unavailable."""
+        # Build inventory from YOLO detections
+        inventory = []
+        object_counts = {}
+        
+        for obj in tracked_objects_summary.values():
+            class_name = obj.get('class_name', 'Unknown')
+            if class_name.lower() not in ["person", "human", "people"]:
+                object_counts[class_name] = object_counts.get(class_name, 0) + 1
+        
+        total_items = 0
+        for item_name, count in sorted(object_counts.items()):
+            total_items += count
+            inventory.append({
+                "item": item_name,
+                "quantity": count,
+                "condition_notes": "Detected via AI computer vision"
+            })
+        
+        # Build scene description
+        scene_desc = ""
+        if room_descriptions:
+            scene_desc = ". ".join(room_descriptions[:2])
+        else:
+            scene_desc = f"Property with {total_items} detected items"
+        
         return {
-            "total_items": 4,
-            "inventory": [
-                {"item": "sofa", "quantity": 1, "condition_notes": "Appears to be in good condition."},
-                {"item": "tv", "quantity": 1, "condition_notes": "Mounted on wall."},
-                {"item": "table", "quantity": 1, "condition_notes": "Wooden coffee table."},
-                {"item": "chair", "quantity": 1, "condition_notes": ""}
-            ],
-            "overall_scene_description": "A well-lit, modern living room containing standard furniture in good condition."
+            "total_items": total_items,
+            "inventory": inventory,
+            "overall_scene_description": scene_desc
         }
