@@ -10,6 +10,7 @@ import {
   Loader2,
   Camera,
   StopCircle,
+  Circle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
