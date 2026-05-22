@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Outfit } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
-import { dark } from "@clerk/themes";
 import "./globals.css";
 
 const inter = Inter({
@@ -50,18 +49,19 @@ export default function RootLayout({
   return (
     <ClerkProvider
       appearance={{
-        baseTheme: dark,
         variables: {
           colorPrimary: "#6366f1",
           colorBackground: "#030712",
           colorInputBackground: "rgba(255, 255, 255, 0.05)",
           colorInputText: "#ffffff",
+          colorText: "#ffffff",
+          colorTextSecondary: "#9ca3af",
           borderRadius: "0.75rem",
         },
         elements: {
           formButtonPrimary: 
-            "bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-cyan-500 text-white",
-          card: "bg-white/5 backdrop-blur-xl border border-white/10",
+            "bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-cyan-500 text-white shadow-lg",
+          card: "bg-gray-900 border border-white/10 shadow-2xl",
           headerTitle: "text-white",
           headerSubtitle: "text-gray-400",
           socialButtonsBlockButton: 
@@ -70,6 +70,8 @@ export default function RootLayout({
           formFieldInput: 
             "bg-white/5 border border-white/10 text-white focus:border-indigo-500",
           footerActionLink: "text-indigo-400 hover:text-indigo-300",
+          identityPreviewText: "text-white",
+          identityPreviewEditButton: "text-indigo-400",
         },
       }}
     >
